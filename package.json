@@ -1,0 +1,121 @@
+{
+  "name": "ds-pubspec",
+  "displayName": "Pubspec Health — SwiftPM, AGP 9 & Discontinued Packages",
+  "description": "Flags discontinued and retracted Flutter/Dart packages in pubspec.yaml, and the plugins in your dependency tree that still need CocoaPods (its registry goes read-only on 2 Dec 2026) or block AGP 9's built-in Kotlin. Quick fixes, and hovers with pub points, likes and downloads.",
+  "version": "0.1.0",
+  "publisher": "devShakib",
+  "license": "MIT",
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#0D0D0F",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "flutter",
+    "dart",
+    "pubspec",
+    "pub.dev",
+    "dependencies",
+    "swift package manager",
+    "swiftpm",
+    "cocoapods",
+    "agp 9",
+    "built-in kotlin",
+    "kotlin gradle plugin",
+    "discontinued",
+    "retracted",
+    "outdated",
+    "migration"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/devShakib015/ds_pubspec.git"
+  },
+  "homepage": "https://devshakib.jumyn.com/apps/ds_pubspec",
+  "bugs": {
+    "url": "https://github.com/devShakib015/ds_pubspec/issues"
+  },
+  "activationEvents": [
+    "workspaceContains:**/pubspec.yaml"
+  ],
+  "main": "./extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "pubspecHealth.showSummary",
+        "title": "Show findings",
+        "category": "Pubspec Health"
+      },
+      {
+        "command": "pubspecHealth.refresh",
+        "title": "Re-check against pub.dev",
+        "category": "Pubspec Health"
+      },
+      {
+        "command": "pubspecHealth.runHealthCheck",
+        "title": "Run full health check (fhc)",
+        "category": "Pubspec Health"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "pubspecHealth.runHealthCheck",
+          "when": "resourceFilename == pubspec.yaml",
+          "group": "navigation@99"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Pubspec Health",
+      "properties": {
+        "pubspecHealth.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check pubspec.yaml files for discontinued, retracted and outdated packages, and plugins that block Swift Package Manager or AGP 9's built-in Kotlin."
+        },
+        "pubspecHealth.disabledChecks": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string",
+            "enum": [
+              "discontinued",
+              "retracted",
+              "outdated",
+              "swiftpm",
+              "built-in-kotlin"
+            ],
+            "enumDescriptions": [
+              "A dependency its author has discontinued on pub.dev.",
+              "The locked version was retracted by its author.",
+              "A newer release is out (shown as a faint hint).",
+              "A plugin in the dependency tree has no Swift package for the locked version, so it still needs CocoaPods.",
+              "A plugin in the dependency tree still applies the Kotlin Gradle Plugin."
+            ]
+          },
+          "markdownDescription": "Checks to turn off everywhere. To hush one project only, set this in its `.vscode/settings.json`."
+        },
+        "pubspecHealth.cacheHours": {
+          "type": "number",
+          "default": 12,
+          "minimum": 1,
+          "description": "How long answers from pub.dev are reused before asking again. pub.dev rate-limits bursts, so keep this in hours."
+        }
+      }
+    }
+  }
+}

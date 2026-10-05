@@ -1,0 +1,8 @@
+.vscode/**
+.gitignore
+tool/**
+test/**
+*.vsix
+preview.png
+icon-512.png
+node_modules/**
