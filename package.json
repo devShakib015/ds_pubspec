@@ -2,7 +2,7 @@
   "name": "ds-pubspec",
   "displayName": "Pubspec Health — SwiftPM, AGP 9 & Discontinued Packages",
   "description": "Flags discontinued and retracted Flutter/Dart packages in pubspec.yaml, and the plugins in your dependency tree that still need CocoaPods (its registry goes read-only on 2 Dec 2026) or block AGP 9's built-in Kotlin. Quick fixes, and hovers with pub points, likes and downloads.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "devShakib",
   "license": "MIT",
   "icon": "icon.png",

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1
+
+- A plugin that applies the Kotlin Gradle Plugin only below AGP 9 is no longer
+  reported. health_bridge and sentry_flutter wrap `apply plugin: 'kotlin-android'`
+  in `if (!isAgp9OrAbove)` or `if (!builtInKotlin)` so they keep building on older
+  AGP; 0.1.0 called that an error in apps with `android.builtInKotlin=true`, which
+  build fine with them (wger). Only an `if` about the AGP version or built-in
+  Kotlin counts as a guard.
+
 ## 0.1.0
 
 First release.
