@@ -217,6 +217,12 @@ test('appliesKgp: every way a Gradle file applies it, and comments that only men
   assert.equal(appliesKgp("/* apply plugin: 'kotlin-android' */\nplugins { id 'com.android.library' }"), false);
   assert.equal(appliesKgp("kotlin { compilerOptions { jvmTarget = JvmTarget.JVM_17 } }"), false);
   assert.equal(appliesKgp('url "https://example.com/kotlin-android"'), false, 'not an id or apply');
+  // Applied only below AGP 9 (health_bridge, sentry_flutter): migrated.
+  assert.equal(appliesKgp("def isAgp9OrAbove = com.android.Version.ANDROID_GRADLE_PLUGIN_VERSION.tokenize('.')[0].toInteger() >= 9\n"
+    + "apply plugin: 'com.android.library'\nif (!isAgp9OrAbove) {\n    apply plugin: 'kotlin-android'\n}"), false);
+  assert.equal(appliesKgp("if (!builtInKotlin) {\n    apply plugin: 'kotlin-android'\n}"), false);
+  assert.equal(appliesKgp("if (project.hasProperty('flavor')) {\n    apply plugin: 'kotlin-android'\n}"), true, 'an if about something else');
+  assert.equal(appliesKgp("if (!isAgp9OrAbove) {\n    apply plugin: 'kotlin-android'\n}\napply plugin: 'org.jetbrains.kotlin.android'"), true, 'guarded once, applied again');
 });
 
 test('inspectPackage: a darwin/ shared source plugin with a Swift package', () => {
