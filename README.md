@@ -50,6 +50,27 @@ A plugin your Android app builds still applies the Kotlin Gradle Plugin
 `android/gradle.properties` says `android.builtInKotlin=true`, at which point
 it's an error, because [the build fails](https://docs.flutter.dev/release/breaking-changes/migrate-to-built-in-kotlin/for-app-developers).
 
+### emudhra-firestore
+
+The `cloud_firestore` in your lockfile still trusts the compromised eMudhra
+certificates on iOS, macOS or Windows. Whoever holds those keys can forge HTTPS
+certificates, and the roots are compiled into your app, so neither an operating
+system update nor a server change reaches builds already installed. Firebase
+lists [7.0.0 and earlier](https://firebase.google.com/support/guides/compromised-emudhra-intermediate-ca)
+as affected, apart from 6.10.1 (iOS and macOS only) and 6.10.2. Release and ask
+users to update once you've moved.
+
+The quick fix runs `flutter pub upgrade`, which reaches 6.10.2 inside a `^6`
+constraint. Naming `cloud_firestore` alone can leave it where it is, because what
+else is locked holds it back. For 7.1.0, move the FlutterFire packages together:
+it needs `firebase_core` 5.1.
+
+No package advisory lists this, so a vulnerability scan won't show it. It lands
+on the dependency that pulls `cloud_firestore` in when you don't list it
+yourself. Apps that only build for Android or the web are left alone, because
+Firestore isn't affected there, though Flutter below 3.47.8 is on Android:
+**Run full health check (fhc)** checks the SDK too.
+
 ### outdated
 
 A newer release is out. Shown as a faint hint, not a squiggle — being behind is
@@ -94,7 +115,7 @@ There's no `pubspec.lock` yet, so nothing locked can be checked. Run
 | Setting | Default | |
 |---|---|---|
 | `pubspecHealth.enable` | `true` | Turn the checks off. |
-| `pubspecHealth.disabledChecks` | `[]` | Any of `discontinued`, `retracted`, `outdated`, `swiftpm`, `built-in-kotlin`. |
+| `pubspecHealth.disabledChecks` | `[]` | Any of `discontinued`, `retracted`, `outdated`, `swiftpm`, `built-in-kotlin`, `emudhra-firestore`. |
 | `pubspecHealth.cacheHours` | `12` | How long pub.dev answers are reused. pub.dev rate-limits bursts. |
 
 ## Privacy

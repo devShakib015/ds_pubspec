@@ -2,7 +2,7 @@
   "name": "ds-pubspec",
   "displayName": "Pubspec Health — SwiftPM, AGP 9 & Discontinued Packages",
   "description": "Flags discontinued and retracted Flutter/Dart packages in pubspec.yaml, and the plugins in your dependency tree that still need CocoaPods (its registry goes read-only on 2 Dec 2026) or block AGP 9's built-in Kotlin. Quick fixes, and hovers with pub points, likes and downloads.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "devShakib",
   "license": "MIT",
   "icon": "icon.png",
@@ -97,14 +97,16 @@
               "retracted",
               "outdated",
               "swiftpm",
-              "built-in-kotlin"
+              "built-in-kotlin",
+              "emudhra-firestore"
             ],
             "enumDescriptions": [
               "A dependency its author has discontinued on pub.dev.",
               "The locked version was retracted by its author.",
               "A newer release is out (shown as a faint hint).",
               "A plugin in the dependency tree has no Swift package for the locked version, so it still needs CocoaPods.",
-              "A plugin in the dependency tree still applies the Kotlin Gradle Plugin."
+              "A plugin in the dependency tree still applies the Kotlin Gradle Plugin.",
+              "The locked cloud_firestore still trusts the compromised eMudhra certificates."
             ]
           },
           "markdownDescription": "Checks to turn off everywhere. To hush one project only, set this in its `.vscode/settings.json`."

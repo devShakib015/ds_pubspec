@@ -312,3 +312,89 @@ test('a plugin the app lists itself is reported on its own line, not on everythi
     assert.deepEqual(by, { share: ['share'], kit: ['kit_android'] });
   } finally { w.cleanup(); }
 });
+
+const firestoreRun = (world, version, extra = {}) => analyze({
+  pubspecText: PUBSPEC(['cloud_firestore: ^6.0.0']),
+  lockText: lockFor({ cloud_firestore: version }, ['cloud_firestore']),
+  projectDir: world.projectDir, cacheDir: world.cacheDir, pubdev: null,
+  checks: { swiftpm: false, 'built-in-kotlin': false },
+  ...extra,
+});
+
+test('emudhra-firestore: on its own line, naming the platforms the app has', async () => {
+  const w = makeWorld({ platforms: ['ios', 'android'] });
+  try {
+    const r = await firestoreRun(w, '6.6.0');
+    assert.deepEqual(ids(r), ['emudhra-firestore:cloud_firestore']);
+    const f = r.findings[0];
+    assert.equal(f.severity, 'warning');
+    assert.match(f.message, /^cloud_firestore 6\.6\.0 trusts .* on iOS\./);
+    assert.equal(f.data.withinReach, true);
+  } finally { w.cleanup(); }
+});
+
+for (const [version, platforms, expected] of [
+  ['7.0.0', ['ios'], ['ios']],
+  ['6.10.0', ['macos', 'windows'], ['macos', 'windows']],
+  ['6.10.1', ['ios'], []],
+  ['6.10.1', ['ios', 'windows'], ['windows']],
+  ['6.10.2', ['ios', 'windows'], []],
+  ['7.1.0', ['ios', 'macos', 'windows'], []],
+]) {
+  test(`emudhra-firestore: ${version} on ${platforms.join(', ')} exposes ${expected.join(', ') || 'nothing'}`, async () => {
+    const w = makeWorld({ platforms });
+    try {
+      const f = (await firestoreRun(w, version)).findings;
+      assert.deepEqual(f.length ? f[0].data.platforms : [], expected);
+    } finally { w.cleanup(); }
+  });
+}
+
+test('emudhra-firestore: Android and web only say nothing', async () => {
+  const w = makeWorld({ platforms: ['android', 'web'] });
+  try {
+    assert.deepEqual(ids(await firestoreRun(w, '6.6.0')), []);
+  } finally { w.cleanup(); }
+});
+
+test('emudhra-firestore: lands on the dependency that pulls it in', async () => {
+  const w = makeWorld({
+    platforms: ['ios'],
+    packages: {
+      fb_core: { version: '1.0.0', deps: ['cloud_firestore'] },
+      cloud_firestore: { version: '6.6.0' },
+      unrelated: { version: '1.0.0' },
+    },
+  });
+  try {
+    const r = await analyze({
+      pubspecText: PUBSPEC(['fb_core: ^1.0.0', 'unrelated: ^1.0.0']),
+      lockText: lockFor({ fb_core: '1.0.0', cloud_firestore: '6.6.0', unrelated: '1.0.0' }, ['fb_core', 'unrelated']),
+      projectDir: w.projectDir, cacheDir: w.cacheDir, pubdev: null,
+      checks: { swiftpm: false, 'built-in-kotlin': false },
+    });
+    assert.deepEqual(ids(r), ['emudhra-firestore:fb_core']);
+    assert.match(r.findings[0].message, /^fb_core pulls in cloud_firestore 6\.6\.0/);
+  } finally { w.cleanup(); }
+});
+
+test('emudhra-firestore: a dev_dependency is never built into the app', async () => {
+  const w = makeWorld({ platforms: ['ios'], packages: { cloud_firestore: { version: '6.6.0' } } });
+  try {
+    const r = await firestoreRun(w, '6.6.0', {
+      pubspecText: 'name: app\ndependencies:\n  flutter:\n    sdk: flutter\ndev_dependencies:\n  cloud_firestore: ^6.0.0\n',
+    });
+    assert.deepEqual(ids(r), []);
+  } finally { w.cleanup(); }
+});
+
+test('emudhra-firestore: can be turned off, and a git copy is not pub.dev\'s', async () => {
+  const w = makeWorld({ platforms: ['ios'] });
+  try {
+    const off = await firestoreRun(w, '6.6.0', { checks: { 'emudhra-firestore': false, swiftpm: false, 'built-in-kotlin': false } });
+    assert.deepEqual(ids(off), []);
+    const lockText = lockFor({ cloud_firestore: '6.6.0' }, ['cloud_firestore'])
+      .replace('source: hosted', 'source: git').replace('url: "https://pub.dev"', 'url: "https://github.com/me/flutterfire"');
+    assert.deepEqual(ids(await firestoreRun(w, '6.6.0', { lockText })), []);
+  } finally { w.cleanup(); }
+});

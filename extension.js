@@ -8,7 +8,7 @@ const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
 const cp = require('child_process');
-const { analyze } = require('./lib/analyze');
+const { analyze, EMUDHRA_NOTICE } = require('./lib/analyze');
 const { pubCacheDir } = require('./lib/pubcache');
 const { createPubDevClient } = require('./lib/pubdev');
 const { issueUrl } = require('./lib/issue');
@@ -37,6 +37,7 @@ function settings() {
       outdated: !disabled.has('outdated'),
       swiftpm: !disabled.has('swiftpm'),
       'built-in-kotlin': !disabled.has('built-in-kotlin'),
+      'emudhra-firestore': !disabled.has('emudhra-firestore'),
     },
     cacheHours: Math.max(1, c.get('cacheHours', 12)),
   };
@@ -249,6 +250,16 @@ function activate(context) {
           if (id === 'outdated') {
             upgrade(`Upgrade ${dep} to ${f.data.latest}, rewriting the constraint if needed`,
               `${tool} pub upgrade --major-versions ${dep}`);
+          }
+
+          if (id === 'emudhra-firestore') {
+            // Not --major-versions: 7.1.0 needs firebase_core 5.1, so that fails
+            // unless FlutterFire moves together. Not named either: what else is
+            // locked holds it back (pulse stayed on 6.6.0 until all could move).
+            if (f.data.withinReach && !pinned) {
+              upgrade(`Upgrade within your constraints (${tool} pub upgrade)`, `${tool} pub upgrade`);
+            }
+            add(EMUDHRA_NOTICE, command("Open Firebase's notice", diag, 'pubspecHealth.openExternal', [EMUDHRA_NOTICE]));
           }
 
           if (id === 'swiftpm' || id === 'built-in-kotlin') {

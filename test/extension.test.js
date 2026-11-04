@@ -232,3 +232,23 @@ test('nobody is asked to migrate a discontinued plugin', async () => {
     assert.ok(titles.includes('Replace connectivity with connectivity_plus'));
   } finally { env.restore(); w.cleanup(); }
 });
+
+test('emudhra-firestore: upgrades its own line, and opens the notice', async () => {
+  const w = makeWorld({ platforms: ['ios'], packages: { cloud_firestore: { version: '6.6.0' } } });
+  const env = await activateWith(w, 'name: app\ndependencies:\n  flutter:\n    sdk: flutter\n  cloud_firestore: ^6.0.0\n', {
+    versions: { cloud_firestore: '6.6.0' }, direct: ['cloud_firestore'],
+    packages: { cloud_firestore: { latest: { version: '6.6.0' }, versions: [{ version: '6.6.0' }] } },
+  });
+  try {
+    const ds = env.sets.get(env.key);
+    assert.deepEqual(ds.map((d) => d.code.value), ['emudhra-firestore']);
+    assert.equal(ds[0].severity, env.api.DiagnosticSeverity.Warning);
+    const doc = { uri: env.uriOf(env.pubspecPath), lineAt: () => ({ text: '  cloud_firestore: ^6.0.0' }) };
+    const actions = await env.providers.actions.provideCodeActions(doc, ds[0].range, { diagnostics: ds });
+    const up = actions.find((a) => a.title.startsWith('Upgrade'));
+    assert.equal(up.title, 'Upgrade within your constraints (flutter pub upgrade)');
+    assert.deepEqual(up.command.arguments[1], 'flutter pub upgrade');
+    const notice = actions.find((a) => a.title === "Open Firebase's notice");
+    assert.match(notice.command.arguments[0], /compromised-emudhra-intermediate-ca$/);
+  } finally { env.restore(); w.cleanup(); }
+});
