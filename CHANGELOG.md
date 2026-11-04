@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.3
+
+- A pubspec under `build/`, `.symlinks/`, `Pods/`, the pub cache or the other
+  ignored folders no longer gets findings. The first scan skipped them, but the
+  file watchers and opening a file didn't, so an iOS build with Swift Package
+  Manager filled Problems with "No pubspec.lock yet", one for each plugin it
+  copied into `build/ios/SourcePackages/`. A project that itself lives under a
+  folder called `build` is still checked.
+
 ## 0.1.2
 
 - `emudhra-firestore`: the `cloud_firestore` in your lockfile still trusts the

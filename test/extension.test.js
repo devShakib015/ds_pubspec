@@ -13,6 +13,7 @@ const path = require('path');
 const { makeWorld, lockFor } = require('./helpers');
 
 function fakeVscode({ pubspecPath, config = {} }) {
+  const events = { watchers: {} };
   const sets = new Map();
   const commands = new Map();
   const providers = {};
@@ -60,15 +61,24 @@ function fakeVscode({ pubspecPath, config = {} }) {
       textDocuments: [],
       getConfiguration: () => ({ get: (k, d) => (k in config ? config[k] : d) }),
       findFiles: async () => [uriOf(pubspecPath)],
-      createFileSystemWatcher: () => ({ onDidChange: noop, onDidCreate: noop, onDidDelete: noop, dispose() {} }),
-      onDidOpenTextDocument: noop, onDidSaveTextDocument: noop, onDidChangeConfiguration: noop,
+      asRelativePath: (uri) => {
+        const root = path.dirname(pubspecPath);
+        return uri.fsPath.startsWith(root + path.sep) ? path.relative(root, uri.fsPath) : uri.fsPath;
+      },
+      createFileSystemWatcher: (glob) => {
+        const on = (name) => (fn) => { (events.watchers[glob] ||= {})[name] = fn; return { dispose() {} }; };
+        return { onDidChange: on('change'), onDidCreate: on('create'), onDidDelete: on('delete'), dispose() {} };
+      },
+      onDidOpenTextDocument: (fn) => { events.open = fn; return { dispose() {} }; },
+      onDidSaveTextDocument: (fn) => { events.save = fn; return { dispose() {} }; },
+      onDidChangeConfiguration: noop,
     },
   };
   const context = {
     subscriptions: [],
     globalState: { get: (k) => state.get(k), update: async (k, v) => { state.set(k, v); }, keys: () => [...state.keys()] },
   };
-  return { api, sets, commands, providers, context, uriOf };
+  return { api, sets, commands, providers, context, uriOf, events };
 }
 
 const PUBDEV = {
@@ -106,7 +116,7 @@ async function activateWith(world, pubspec, { versions = { connectivity: '3.0.6'
   const key = fake.uriOf(pubspecPath).toString();
   for (let i = 0; i < 100 && !fake.sets.has(key); i++) await new Promise((r) => setTimeout(r, 10));
   return {
-    ...fake, key, pubspecPath,
+    ...fake, key, pubspecPath, fileUri: () => fake.uriOf(pubspecPath),
     restore() {
       globalThis.fetch = originalFetch;
       if (originalCache === undefined) delete process.env.PUB_CACHE; else process.env.PUB_CACHE = originalCache;
@@ -251,4 +261,90 @@ test('emudhra-firestore: upgrades its own line, and opens the notice', async () 
     const notice = actions.find((a) => a.title === "Open Firebase's notice");
     assert.match(notice.command.arguments[0], /compromised-emudhra-intermediate-ca$/);
   } finally { env.restore(); w.cleanup(); }
+});
+
+// soon() waits 600 ms before it checks, so "nothing happened" needs that long.
+const settled = () => new Promise((r) => setTimeout(r, 700));
+
+function pubspecUnderBuild(env, ...parts) {
+  const file = path.join(path.dirname(env.pubspecPath), 'build', ...parts);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, 'name: copied\ndependencies:\n  http: ^1.2.0\n');
+  return env.uriOf(file);
+}
+
+test('a pubspec in a build folder is never checked, however it is reached', async () => {
+  const w = makeWorld();
+  const env = await activateWith(w, PUBSPEC);
+  try {
+    const before = [...env.sets.keys()];
+    const copied = pubspecUnderBuild(env, 'ios', 'SourcePackages', 'checkouts', 'foo', 'pubspec.yaml');
+    const lock = pubspecUnderBuild(env, 'x', 'pubspec.lock');
+    pubspecUnderBuild(env, 'x', 'pubspec.yaml');
+
+    env.events.watchers['**/pubspec.yaml'].change(copied);
+    env.events.watchers['**/pubspec.lock'].create(lock);
+    env.events.watchers['**/pubspec.lock'].change(lock);
+    env.events.open({ uri: copied });
+    env.events.save({ uri: copied });
+    await settled();
+
+    assert.deepEqual([...env.sets.keys()], before);
+  } finally { env.restore(); w.cleanup(); }
+});
+
+test('the project\'s own pubspec is still checked again when it changes', async () => {
+  const w = makeWorld();
+  const env = await activateWith(w, PUBSPEC);
+  try {
+    assert.equal(env.sets.get(env.key)[0].range.start.line, 2);
+    fs.writeFileSync(env.pubspecPath, `# first\n${PUBSPEC}`);
+    env.events.watchers['**/pubspec.yaml'].change(env.fileUri());
+    await settled();
+    assert.equal(env.sets.get(env.key)[0].range.start.line, 3);
+  } finally { env.restore(); w.cleanup(); }
+});
+
+test('a project that lives under a folder called build is still a project', async () => {
+  const w = makeWorld();
+  w.projectDir = path.join(w.projectDir, 'build', 'app');
+  fs.mkdirSync(w.projectDir, { recursive: true });
+  const env = await activateWith(w, PUBSPEC);
+  try {
+    fs.writeFileSync(env.pubspecPath, `# first\n${PUBSPEC}`);
+    env.events.watchers['**/pubspec.yaml'].change(env.fileUri());
+    await settled();
+    assert.equal(env.sets.get(env.key)[0].range.start.line, 3);
+  } finally { env.restore(); w.cleanup(); }
+});
+
+test('opening a pubspec from the pub cache, outside the workspace, adds nothing', async () => {
+  const w = makeWorld();
+  const outside = fs.mkdtempSync(path.join(require('os').tmpdir(), 'ds-pubspec-'));
+  const env = await activateWith(w, PUBSPEC);
+  try {
+    const before = [...env.sets.keys()];
+    const file = path.join(outside, '.pub-cache', 'hosted', 'pub.dev', 'http-1.2.0', 'pubspec.yaml');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'name: http\ndependencies:\n  meta: ^1.0.0\n');
+    env.events.open({ uri: env.uriOf(file) });
+    await settled();
+    assert.deepEqual([...env.sets.keys()], before);
+  } finally { env.restore(); w.cleanup(); fs.rmSync(outside, { recursive: true, force: true }); }
+});
+
+test('inIgnoredDir goes by whole folder names, and the glob lists the same ones', () => {
+  const { inIgnoredDir, IGNORE_GLOB } = require('../lib/ignored');
+  for (const p of [
+    'build/ios/SourcePackages/checkouts/foo/example/pubspec.yaml',
+    'packages/app/build/x/pubspec.yaml',
+    'ios/.symlinks/plugins/foo/pubspec.yaml',
+    'linux/flutter/ephemeral/.plugin_symlinks/foo/pubspec.yaml',
+    '/Users/me/.pub-cache/hosted/pub.dev/foo-1.0.0/pubspec.yaml',
+    'build\\x\\pubspec.yaml',
+  ]) assert.equal(inIgnoredDir(p), true, p);
+  for (const p of ['pubspec.yaml', 'packages/app/pubspec.yaml', 'builder/pubspec.yaml', 'my_build/pubspec.yaml', 'build']) {
+    assert.equal(inIgnoredDir(p), false, p);
+  }
+  assert.equal(IGNORE_GLOB, '**/{.dart_tool,build,.symlinks,Pods,node_modules,.pub-cache,.fvm,ephemeral}/**');
 });

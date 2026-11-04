@@ -14,6 +14,7 @@ const { createPubDevClient } = require('./lib/pubdev');
 const { issueUrl } = require('./lib/issue');
 const { resolveLock } = require('./lib/workspace');
 const { replaceDependencyLine } = require('./lib/edit');
+const { IGNORE_GLOB, inIgnoredDir } = require('./lib/ignored');
 
 const SOURCE = 'Pubspec Health';
 const DOCS = 'https://github.com/devShakib015/ds_pubspec#';
@@ -24,7 +25,6 @@ const SEVERITY = {
   info: vscode.DiagnosticSeverity.Information,
   hint: vscode.DiagnosticSeverity.Hint,
 };
-const IGNORE = '**/{.dart_tool,build,.symlinks,Pods,node_modules,.pub-cache,.fvm,ephemeral}/**';
 
 function settings() {
   const c = vscode.workspace.getConfiguration('pubspecHealth');
@@ -44,6 +44,7 @@ function settings() {
 }
 
 const isPubspec = (uri) => uri && uri.scheme === 'file' && path.basename(uri.fsPath) === 'pubspec.yaml';
+const isIgnored = (uri) => inIgnoredDir(vscode.workspace.asRelativePath(uri, false));
 const usesFlutter = (deps) => deps.some((d) => d.name === 'flutter' && d.source === 'sdk');
 
 /** @param {vscode.ExtensionContext} context */
@@ -106,14 +107,15 @@ function activate(context) {
   }
 
   const soon = (uri) => {
-    if (!isPubspec(uri)) return;
+    // Every re-check comes through here: watchers, opening a file, saving one.
+    if (!isPubspec(uri) || isIgnored(uri)) return;
     const key = uri.toString();
     clearTimeout(timers.get(key));
     timers.set(key, setTimeout(() => { timers.delete(key); check(uri); }, 600));
   };
 
   async function checkWorkspace() {
-    const files = await vscode.workspace.findFiles('**/pubspec.yaml', IGNORE, 200);
+    const files = await vscode.workspace.findFiles('**/pubspec.yaml', IGNORE_GLOB, 200);
     await Promise.all(files.map(check));
   }
 
@@ -344,7 +346,7 @@ function activate(context) {
       const target = uri && isPubspec(uri) ? uri
         : (vscode.window.activeTextEditor && isPubspec(vscode.window.activeTextEditor.document.uri)
           ? vscode.window.activeTextEditor.document.uri
-          : (await vscode.workspace.findFiles('pubspec.yaml', IGNORE, 1))[0]);
+          : (await vscode.workspace.findFiles('pubspec.yaml', IGNORE_GLOB, 1))[0]);
       if (!target) { vscode.window.showWarningMessage('Open a Flutter project (a folder with pubspec.yaml) first.'); return; }
       const dir = path.dirname(target.fsPath);
       const installed = await new Promise((resolve) => {
