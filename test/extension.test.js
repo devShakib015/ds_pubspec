@@ -243,23 +243,62 @@ test('nobody is asked to migrate a discontinued plugin', async () => {
   } finally { env.restore(); w.cleanup(); }
 });
 
-test('emudhra-firestore: upgrades its own line, and opens the notice', async () => {
-  const w = makeWorld({ platforms: ['ios'], packages: { cloud_firestore: { version: '6.6.0' } } });
-  const env = await activateWith(w, 'name: app\ndependencies:\n  flutter:\n    sdk: flutter\n  cloud_firestore: ^6.0.0\n', {
-    versions: { cloud_firestore: '6.6.0' }, direct: ['cloud_firestore'],
-    packages: { cloud_firestore: { latest: { version: '6.6.0' }, versions: [{ version: '6.6.0' }] } },
+test('emudhra-firestore: raises the floors in the file, then saves and upgrades the FlutterFire packages', async () => {
+  const w = makeWorld({ platforms: ['ios'], packages: { cloud_firestore: { version: '6.6.0' }, firebase_core: { version: '4.11.0' } } });
+  fs.writeFileSync(path.join(w.projectDir, 'ios', 'Podfile.lock'), 'PODS:\n');
+  const text = 'name: app\ndependencies:\n  flutter:\n    sdk: flutter\n  cloud_firestore: ^6.5.0 # db\n  firebase_core: ^4.10.0\n';
+  const env = await activateWith(w, text, {
+    versions: { cloud_firestore: '6.6.0', firebase_core: '4.11.0' }, direct: ['cloud_firestore', 'firebase_core'],
+    packages: {
+      cloud_firestore: { latest: { version: '6.6.0' }, versions: [{ version: '6.6.0' }] },
+      firebase_core: { latest: { version: '4.11.0' }, versions: [{ version: '4.11.0' }] },
+    },
   });
   try {
     const ds = env.sets.get(env.key);
     assert.deepEqual(ds.map((d) => d.code.value), ['emudhra-firestore']);
     assert.equal(ds[0].severity, env.api.DiagnosticSeverity.Warning);
-    const doc = { uri: env.uriOf(env.pubspecPath), lineAt: () => ({ text: '  cloud_firestore: ^6.0.0' }) };
+    const lines = text.split('\n');
+    const doc = { uri: env.uriOf(env.pubspecPath), lineAt: (i) => ({ text: lines[i] }) };
     const actions = await env.providers.actions.provideCodeActions(doc, ds[0].range, { diagnostics: ds });
-    const up = actions.find((a) => a.title.startsWith('Upgrade'));
-    assert.equal(up.title, 'Upgrade within your constraints (flutter pub upgrade)');
-    assert.deepEqual(up.command.arguments[1], 'flutter pub upgrade');
+    const narrow = actions[0];
+    assert.equal(narrow.title, 'Raise cloud_firestore to ^6.10.2 and firebase_core to ^4.15.2, then upgrade the FlutterFire packages');
+    assert.equal(narrow.isPreferred, true);
+    assert.deepEqual(narrow.edit.edits.map((e) => [e.range.start.line, e.text]),
+      [[4, '  cloud_firestore: ^6.10.2 # db'], [5, '  firebase_core: ^4.15.2']]);
+    assert.equal(narrow.command.command, 'pubspecHealth.saveAndRun');
+    assert.equal(narrow.command.arguments[2],
+      'flutter pub upgrade cloud_firestore firebase_core && pod update Firebase --project-directory=ios');
+    const plain = actions.find((a) => a.title.startsWith('Upgrade everything'));
+    assert.equal(plain.command.arguments[1], 'flutter pub upgrade && pod update Firebase --project-directory=ios');
     const notice = actions.find((a) => a.title === "Open Firebase's notice");
     assert.match(notice.command.arguments[0], /compromised-emudhra-intermediate-ca$/);
+
+    // The command saves before pub reads the file from disk.
+    const saved = [];
+    const sent = [];
+    env.api.workspace.textDocuments.push({ uri: doc.uri, isDirty: true, save: async () => { saved.push(true); return true; } });
+    env.api.window.createTerminal = () => ({ name: 'x', show() {}, sendText: (l) => sent.push(l) });
+    await env.commands.get('pubspecHealth.saveAndRun')(...narrow.command.arguments);
+    assert.deepEqual(saved, [true]);
+    assert.deepEqual(sent, [narrow.command.arguments[2]]);
+  } finally { env.restore(); w.cleanup(); }
+});
+
+test('emudhra-firestore: a constraint it cannot rewrite falls back to the plain upgrade', async () => {
+  const w = makeWorld({ platforms: ['ios'], packages: { cloud_firestore: { version: '6.6.0' } } });
+  const text = 'name: app\ndependencies:\n  flutter:\n    sdk: flutter\n  cloud_firestore: ">=6.0.0 <7.0.0"\n';
+  const env = await activateWith(w, text, {
+    versions: { cloud_firestore: '6.6.0' }, direct: ['cloud_firestore'],
+    packages: { cloud_firestore: { latest: { version: '6.6.0' }, versions: [{ version: '6.6.0' }] } },
+  });
+  try {
+    const ds = env.sets.get(env.key);
+    const lines = text.split('\n');
+    const doc = { uri: env.uriOf(env.pubspecPath), lineAt: (i) => ({ text: lines[i] }) };
+    const titles = (await env.providers.actions.provideCodeActions(doc, ds[0].range, { diagnostics: ds })).map((a) => a.title);
+    assert.ok(!titles.some((t) => t.startsWith('Raise')), titles.join(' | '));
+    assert.ok(titles.includes('Upgrade everything within your constraints (flutter pub upgrade)'), titles.join(' | '));
   } finally { env.restore(); w.cleanup(); }
 });
 

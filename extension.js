@@ -8,12 +8,12 @@ const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
 const cp = require('child_process');
-const { analyze, EMUDHRA_NOTICE } = require('./lib/analyze');
+const { analyze, quoteList, EMUDHRA_NOTICE } = require('./lib/analyze');
 const { pubCacheDir } = require('./lib/pubcache');
 const { createPubDevClient } = require('./lib/pubdev');
 const { issueUrl } = require('./lib/issue');
 const { resolveLock } = require('./lib/workspace');
-const { replaceDependencyLine } = require('./lib/edit');
+const { replaceDependencyLine, raiseConstraintLine } = require('./lib/edit');
 const { IGNORE_GLOB, inIgnoredDir } = require('./lib/ignored');
 
 const SOURCE = 'Pubspec Health';
@@ -254,13 +254,37 @@ function activate(context) {
               `${tool} pub upgrade --major-versions ${dep}`);
           }
 
-          if (id === 'emudhra-firestore') {
-            // Not --major-versions: 7.1.0 needs firebase_core 5.1, so that fails
-            // unless FlutterFire moves together. Not named either: what else is
-            // locked holds it back (pulse stayed on 6.6.0 until all could move).
-            if (f.data.withinReach && !pinned) {
-              upgrade(`Upgrade within your constraints (${tool} pub upgrade)`, `${tool} pub upgrade`);
+          if (id === 'emudhra-firestore' && !pinned) {
+            // Raise the floors, then name the FlutterFire packages: named
+            // alone, pub keeps what is locked (a real app stayed on 6.6.0).
+            // The edit shows in the file and undoes like any other; the command
+            // saves it, because pub reads the pubspec from disk.
+            const plan = f.data.plan || { raise: [], names: [] };
+            const pods = (f.data.pods || []).map((p) => `pod update Firebase --project-directory=${p}`);
+            const run = (cmd) => [cmd, ...pods].join(' && ');
+            const lines = plan.raise.map((x) => ({ ...x, text: doc.lineAt(x.line).text }));
+            const raised = lines.map((x) => raiseConstraintLine(x.text, x.name, x.floor));
+            if (!plan.major && lines.some((x) => x.name === 'cloud_firestore') && raised.every((x) => x !== null)) {
+              const a = new vscode.CodeAction(
+                `Raise ${quoteList(plan.raise.map((x) => `${x.name} to ^${x.floor}`))}, then upgrade the FlutterFire packages`,
+                vscode.CodeActionKind.QuickFix);
+              a.edit = new vscode.WorkspaceEdit();
+              lines.forEach((x, i) => a.edit.replace(doc.uri, new vscode.Range(x.line, 0, x.line, x.text.length), raised[i]));
+              const cmd = run(`${tool} pub upgrade ${plan.names.join(' ')}`);
+              a.command = { title: a.title, command: 'pubspecHealth.saveAndRun', arguments: [doc.uri, r.projectDir, cmd] };
+              a.diagnostics = [diag];
+              a.isPreferred = true;
+              add(`raise:${cmd}`, a);
             }
+            if (plan.major && plan.names.length) {
+              upgrade(`Move the FlutterFire packages to their current majors (${tool} pub upgrade --major-versions)`,
+                run(`${tool} pub upgrade --major-versions ${plan.names.join(' ')}`));
+            }
+            if (f.data.withinReach) {
+              upgrade(`Upgrade everything within your constraints (${tool} pub upgrade)`, run(`${tool} pub upgrade`));
+            }
+          }
+          if (id === 'emudhra-firestore') {
             add(EMUDHRA_NOTICE, command("Open Firebase's notice", diag, 'pubspecHealth.openExternal', [EMUDHRA_NOTICE]));
           }
 
@@ -308,6 +332,14 @@ function activate(context) {
     hover, actions,
     vscode.commands.registerCommand('pubspecHealth.openExternal', (url) => vscode.env.openExternal(vscode.Uri.parse(url))),
     vscode.commands.registerCommand('pubspecHealth.runInTerminal', (cwd, line) => {
+      const t = terminalFor(cwd);
+      t.show();
+      t.sendText(line);
+    }),
+    vscode.commands.registerCommand('pubspecHealth.saveAndRun', async (uri, cwd, line) => {
+      const doc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString())
+        || await vscode.workspace.openTextDocument(uri);
+      if (doc.isDirty && !(await doc.save())) return;
       const t = terminalFor(cwd);
       t.show();
       t.sendText(line);

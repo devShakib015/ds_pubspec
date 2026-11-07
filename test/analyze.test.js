@@ -5,6 +5,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
 const { analyze } = require('../lib/analyze');
 const { appliesKgp, inspectPackage, hostedDirNames } = require('../lib/pubcache');
 const { makeWorld, lockFor, fakePubDev } = require('./helpers');
@@ -349,6 +351,48 @@ for (const [version, platforms, expected] of [
     } finally { w.cleanup(); }
   });
 }
+
+test('emudhra-firestore: the plan raises the floors that are low and names only FlutterFire', async () => {
+  const w = makeWorld({ platforms: ['ios'] });
+  fs.mkdirSync(path.join(w.projectDir, 'ios'), { recursive: true });
+  fs.writeFileSync(path.join(w.projectDir, 'ios', 'Podfile.lock'), 'PODS:\n');
+  try {
+    const pubspecText = 'name: app\ndependencies:\n  cloud_firestore: ^6.5.0\n  firebase_core: ^4.10.0\n'
+      + '  firebase_auth: ^6.5.2\n  http: ^1.2.0\ndev_dependencies:\n  fake_cloud_firestore: ^4.1.1\n';
+    const versions = { cloud_firestore: '6.6.0', firebase_core: '4.11.0', firebase_auth: '6.5.3', http: '1.2.0', fake_cloud_firestore: '4.1.1' };
+    const r = await firestoreRun(w, '6.6.0', { pubspecText, lockText: lockFor(versions, Object.keys(versions)) });
+    const { plan, pods } = r.findings[0].data;
+    assert.deepEqual(plan.raise, [
+      { name: 'cloud_firestore', floor: '6.10.2', line: 2 },
+      { name: 'firebase_core', floor: '4.15.2', line: 3 },
+      { name: 'fake_cloud_firestore', floor: '4.2.0', line: 7 },
+    ]);
+    assert.deepEqual(plan.names, ['cloud_firestore', 'fake_cloud_firestore', 'firebase_auth', 'firebase_core']);
+    assert.equal(plan.major, false);
+    assert.deepEqual(pods, ['ios']);
+  } finally { w.cleanup(); }
+});
+
+test('emudhra-firestore: 7.0.0 aims at 7.1.0, and a floor already high enough stays', async () => {
+  const w = makeWorld({ platforms: ['ios'] });
+  try {
+    const pubspecText = 'name: app\ndependencies:\n  cloud_firestore: ^7.0.0\n  firebase_core: ^5.1.0\n';
+    const versions = { cloud_firestore: '7.0.0', firebase_core: '5.1.0' };
+    const r = await firestoreRun(w, '7.0.0', { pubspecText, lockText: lockFor(versions, Object.keys(versions)) });
+    assert.deepEqual(r.findings[0].data.plan.raise, [{ name: 'cloud_firestore', floor: '7.1.0', line: 2 }]);
+    assert.deepEqual(r.findings[0].data.pods, []);
+  } finally { w.cleanup(); }
+});
+
+test('emudhra-firestore: below 6 the plan is --major-versions on the listed packages', async () => {
+  const w = makeWorld({ platforms: ['ios'] });
+  try {
+    const pubspecText = 'name: app\ndependencies:\n  cloud_firestore: ^5.6.0\n  firebase_core: ^3.10.0\n';
+    const versions = { cloud_firestore: '5.6.12', firebase_core: '3.15.2' };
+    const r = await firestoreRun(w, '5.6.12', { pubspecText, lockText: lockFor(versions, Object.keys(versions)) });
+    assert.deepEqual(r.findings[0].data.plan, { major: true, names: ['cloud_firestore', 'firebase_core'], raise: [] });
+  } finally { w.cleanup(); }
+});
 
 test('emudhra-firestore: Android and web only say nothing', async () => {
   const w = makeWorld({ platforms: ['android', 'web'] });

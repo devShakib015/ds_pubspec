@@ -60,10 +60,16 @@ lists [7.0.0 and earlier](https://firebase.google.com/support/guides/compromised
 as affected, apart from 6.10.1 (iOS and macOS only) and 6.10.2. Release and ask
 users to update once you've moved.
 
-The quick fix runs `flutter pub upgrade`, which reaches 6.10.2 inside a `^6`
-constraint. Naming `cloud_firestore` alone can leave it where it is, because what
-else is locked holds it back. For 7.1.0, move the FlutterFire packages together:
-it needs `firebase_core` 5.1.
+The quick fix raises the `cloud_firestore` and `firebase_core` floors in the
+pubspec (6.10.2 and 4.15.2 on 6.x, 7.1.0 and 5.1.0 on 7.0.0), saves it, and
+runs `flutter pub upgrade` naming only your FlutterFire packages. Naming them
+without raising the floors moves nothing, because pub keeps what is locked; a
+plain `flutter pub upgrade` gets there too, and is offered second, but moves
+every package in the lockfile. `fake_cloud_firestore` 4.1.1 no longer compiles
+against 6.10.2 (4.2.0 does), so its floor is raised as well. Where ios/ or
+macos/ has a `Podfile.lock`, the command ends with `pod update Firebase`,
+because the lock still pins the old Firebase SDK. Below 6, the fix is
+`--major-versions` on the same packages.
 
 No package advisory lists this, so a vulnerability scan won't show it. It lands
 on the dependency that pulls `cloud_firestore` in when you don't list it

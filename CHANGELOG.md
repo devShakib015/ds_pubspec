@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.4
+
+- `emudhra-firestore` has a narrower quick fix. It raises the `cloud_firestore`
+  and `firebase_core` floors in the pubspec (6.10.2 and 4.15.2 on 6.x, 7.1.0 and
+  5.1.0 on 7.0.0), and `fake_cloud_firestore` to 4.2.0 when it's older, since
+  4.1.1 no longer compiles against 6.10.2. Then it saves the
+  file and runs `flutter pub upgrade` naming only the FlutterFire packages you
+  list. Raising the floors is what moves them: on a real app's old lockfile,
+  naming the packages changed nothing, and with the floors raised 10 packages
+  moved instead of 118. The raised lines are an ordinary edit, so undo puts
+  them back.
+- With a `Podfile.lock` in ios/ or macos/, the command adds
+  `pod update Firebase --project-directory=ios`, because the lock still pins
+  the old Firebase SDK and `pod install` fails on it.
+- Below 6, the fix is `--major-versions` on the same packages. A constraint it
+  can't rewrite (a range, `any`, a block entry) keeps only the plain
+  `flutter pub upgrade`, which is still offered as the second choice.
+
 ## 0.1.3
 
 - A pubspec under `build/`, `.symlinks/`, `Pods/`, the pub cache or the other
